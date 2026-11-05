@@ -1,19 +1,20 @@
 import datetime
 import logging
 import os
-from typing import List, Optional
+from typing import List
 from models import AdItem
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 class GoogleSheetsExporter:
-    """Exportador para Google Sheets via gspread, com suporte a múltiplas abas por item."""
+    """Exportador para Google Sheets via gspread, com suporte a abas por termo."""
 
     def __init__(self, config: Config, credentials_file: str = "credentials.json"):
         self.config = config
         self.credentials_file = os.getenv("GOOGLE_CREDENTIALS_FILE", credentials_file)
-        self.sheet_name = os.getenv("GOOGLE_SHEET_NAME", "Radar de Ofertas - Hardware")
+        self.sheet_name = os.getenv("GOOGLE_SHEET_NAME", "Rastreador de Marketplace")
+        self.sheet_id = os.getenv("GOOGLE_SHEET_ID", "").strip()
 
     def is_available(self) -> bool:
         return os.path.exists(self.credentials_file)
@@ -30,12 +31,31 @@ class GoogleSheetsExporter:
             import gspread
             gc = gspread.service_account(filename=self.credentials_file)
             
-            # 1. Abrir ou criar a planilha
-            try:
-                sh = gc.open(self.sheet_name)
-            except gspread.SpreadsheetNotFound:
-                sh = gc.create(self.sheet_name)
-                logger.info(f"Nova planilha criada no Google Sheets: '{self.sheet_name}'")
+            # 1. Abrir a planilha (por ID ou por Nome)
+            sh = None
+            if self.sheet_id:
+                try:
+                    sh = gc.open_by_key(self.sheet_id)
+                except Exception as e:
+                    logger.warning(f"Não foi possível abrir planilha pelo ID '{self.sheet_id}': {e}")
+
+            if sh is None:
+                try:
+                    sh = gc.open(self.sheet_name)
+                except gspread.SpreadsheetNotFound:
+                    # Busca case-insensitive entre as planilhas compartilhadas
+                    all_sheets = gc.openall()
+                    for s in all_sheets:
+                        if s.title.strip().lower() == self.sheet_name.strip().lower():
+                            sh = s
+                            break
+
+            if sh is None:
+                logger.error(
+                    f"Planilha '{self.sheet_name}' não encontrada. "
+                    f"Certifique-se de criar a planilha no seu Google Drive e compartilhá-la com o e-mail da sua Service Account como Editor."
+                )
+                return False
 
             # 2. Obter ou criar a aba para o termo pesquisado
             tab_title = query.strip()[:30]
@@ -43,7 +63,6 @@ class GoogleSheetsExporter:
                 worksheet = sh.worksheet(tab_title)
             except gspread.WorksheetNotFound:
                 worksheet = sh.add_worksheet(title=tab_title, rows=1000, cols=15)
-                # Cabeçalho estilizado
                 headers = [
                     "Data/Hora", "Fonte", "Linha", "Processador", "RAM", "Armazenamento",
                     "Preço (R$)", "Média Mercado (R$)", "Desconto (%)", "Avaliação da Oferta",
@@ -52,7 +71,7 @@ class GoogleSheetsExporter:
                 worksheet.append_row(headers)
                 logger.info(f"Criada nova aba '{tab_title}' no Google Sheets.")
 
-            # 3. Ler URLs já existentes para não duplicar
+            # 3. Ler URLs já existentes para não duplicar linhas
             existing_urls = set(worksheet.col_values(14))  # Coluna 14 = Link
 
             now_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
