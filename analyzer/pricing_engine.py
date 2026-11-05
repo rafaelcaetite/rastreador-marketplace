@@ -1,4 +1,4 @@
-import statistics
+import os
 from typing import List, Dict
 from models import AdItem
 
@@ -19,19 +19,17 @@ class PricingEngine:
             return "⚠️ ACIMA DA MÉDIA"
 
     def evaluate_deals(self, ads: List[AdItem]) -> List[AdItem]:
-        # 1. Agrupar preços válidos por SKU
         sku_groups: Dict[str, List[float]] = {}
         for ad in ads:
             if not ad.sku_key or ad.price <= 0:
                 continue
             sku_groups.setdefault(ad.sku_key, []).append(ad.price)
 
-        # 2. Calcular média para cada SKU
         sku_averages: Dict[str, float] = {}
         for sku, prices in sku_groups.items():
-            sku_averages[sku] = statistics.mean(prices)
+            if prices:
+                sku_averages[sku] = sum(prices) / len(prices)
 
-        # 3. Atualizar cada anúncio com a métrica calculada
         for ad in ads:
             sku = ad.sku_key or "Outros"
             avg_price = sku_averages.get(sku) or self.historical_benchmarks.get(sku) or ad.price

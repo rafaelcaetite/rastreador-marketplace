@@ -1,103 +1,105 @@
-# 🚀 Esteira Automatizada de Monitoramento de Ofertas (OLX -> Telegram)
+# 🚀 Plataforma de Inteligência de Ofertas (OLX + Mercado Livre -> Google Sheets & Telegram)
 
-Esteira de alta performance desenvolvida em Python para monitorar em tempo real ofertas da **OLX Brasil**, aplicando filtros rigorosos de preço, entrega (OLX Pay) e palavras-chave anti-ruído, com alertas instantâneos no **Telegram**.
-
----
-
-## 🎯 Configuração Padrão
-* **Alvo:** MacBook Air M2
-* **Faixa de Preço:** R$ 3.000,00 a R$ 5.000,00
-* **Entrega:** Apenas anúncios com OLX Pay / Entrega habilitada em todo o Brasil
-* **Intervalo:** A cada 10 minutos (configurável)
-* **Deduplicação:** SQLite local (`deals.db`) para não reenviar anúncios já alertados
+Plataforma autônoma em Python para monitoramento, extração de dados e inteligência estatística de preços de eletrônicos e hardware, com categorização semântica, cálculo de desconto em relação à média de mercado e exportação automática para **Google Sheets** (com abas dedicadas por produto) e alertas no **Telegram**.
 
 ---
 
-## 📋 Pré-requisitos
-* Python 3.10 ou superior
-* (Opcional) Docker e Docker Compose se for rodar em VPS
+## 🌟 Principais Funcionalidades
+
+1. **Inteligência de Mercado e Benchmark de Preços:**
+   * Agrupa anúncios por **SKU canônico** (ex: `MacBook Air | Apple M2 | 8GB | 256GB`).
+   * Calcula a média de mercado do modelo exato e o desconto percentual.
+   * Classifica automaticamente cada oferta:
+     * 🔥 **SUPER OPORTUNIDADE** ($\ge 20\%$ abaixo da média)
+     * ✅ **BOM PREÇO** ($10\%$ a $19.9\%$ abaixo da média)
+     * ⚖️ **PREÇO NA MÉDIA** ($-10\%$ a $+9.9\%$ da média)
+     * ⚠️ **ACIMA DA MÉDIA** ($> 10\%$ acima da média)
+
+2. **Extrator Semântico de Hardware:**
+   * Identifica automaticamente a partir de títulos e descrições:
+     * **Linha:** MacBook Air, MacBook Pro, MacBook
+     * **Processador:** Apple M1, M1 Pro/Max, M2, M3, M4, Intel Core i5/i7
+     * **Memória RAM:** 8GB, 16GB, 24GB, 32GB, 64GB
+     * **Armazenamento:** 128GB, 256GB, 512GB, 1TB, 2TB
+     * **Tela:** 13", 13.6", 14", 15", 16"
+
+3. **Exportação Dinâmica para Planilhas:**
+   * **Google Sheets:** Conecta via `gspread` e cria automaticamente uma **nova Aba (Worksheet)** para cada termo de busca (ex: aba `"MacBook"`, aba `"Macbook Air M2"`).
+   * **Backup Local Automático:** Sempre gera e atualiza planilhas em `data/<termo>.xlsx` e `data/<termo>.csv` com 14 colunas estruturadas e auto-ajustadas.
+
+4. **Multi-Fonte e Resiliência Anti-Bot:**
+   * Coletor otimizado com `curl_cffi` para contornar Cloudflare na OLX.
+   * Conector preparado para Mercado Livre.
+   * SQLite (`deals.db`) para deduplicação instantânea.
 
 ---
 
-## ⚡ Instalação Rápida
+## 📊 Estrutura das Colunas na Planilha
 
-1. **Instale as dependências:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Crie o arquivo de configuração `.env`:**
-   ```bash
-   cp .env.example .env
-   ```
-
----
-
-## 🤖 Como Configurar o Telegram em 2 Minutos
-
-1. Abra o Telegram e procure por **`@BotFather`**.
-2. Envie o comando `/newbot` e siga as instruções para escolher nome e username.
-3. Copie o **Token do Bot** gerado (ex: `123456789:ABCdefGHIjkl...`).
-4. Agora procure pelo bot **`@userinfobot`** no Telegram e envie qualquer mensagem. Ele responderá com o seu **Id numérico** (ex: `987654321`).
-5. Abra o seu bot recém-criado e clique em **Começar / Start** (para autorizá-lo a enviar mensagens para você).
-6. Abra o arquivo `.env` e preencha:
-   ```env
-   TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjkl...
-   TELEGRAM_CHAT_ID=987654321
-   ```
+| Coluna | Descrição |
+| :--- | :--- |
+| **Data/Hora** | Timestamp da coleta (`DD/MM/AAAA HH:MM`) |
+| **Fonte** | Origem do anúncio (`OLX` ou `Mercado Livre`) |
+| **Linha** | Ex: `MacBook Air`, `MacBook Pro` |
+| **Processador** | Ex: `Apple M2`, `Apple M1 Pro` |
+| **Memória RAM** | Ex: `8GB`, `16GB` |
+| **Armazenamento** | Ex: `256GB`, `512GB`, `1TB` |
+| **Preço (R$)** | Preço anunciado pelo vendedor |
+| **Média Mercado (R$)** | Média de preço calculada para esse SKU |
+| **Desconto vs Média (%)** | Percentual de economia em relação à média |
+| **Avaliação da Oferta** | Classificação (ex: `🔥 SUPER OPORTUNIDADE`, `✅ BOM PREÇO`) |
+| **Título do Anúncio** | Nome original postado |
+| **Localização** | Cidade e Estado |
+| **Entrega** | `Sim` (OLX Pay / Envios) ou `Não` |
+| **Link do Anúncio** | URL direta para compra |
 
 ---
 
-## 🖥️ Como Executar
+## ⚡ Como Rodar o Projeto
 
-### 1. Modo Simulação / Teste (Dry-Run)
-Para testar a busca e ver os anúncios reais no terminal sem disparar mensagens no Telegram:
+### 1. Instalar Dependências
 ```bash
-python main.py --dry-run --once
+pip install -r requirements.txt
 ```
 
-### 2. Executar Contínuo (Loop a cada 10 minutos)
+### 2. Rodar Teste no Terminal (com geração de planilha)
 ```bash
-python main.py
+# Busca qualquer produto e gera a planilha correspondente em data/
+python main.py --dry-run --once --query "Macbook Air M2"
 ```
+A planilha formatada será salva imediatamente em `data/macbook_air_m2.xlsx` e `data/macbook_air_m2.csv`.
 
-### 3. Personalizar via Linha de Comando (Opcional)
-Você pode testar qualquer outro produto ou faixa de preço sem mexer no `.env`:
+### 3. Rodar a Esteira Contínua (a cada 10 minutos)
 ```bash
-python main.py --query "Playstation 5" --min-price 2500 --max-price 3500 --interval 5
+python main.py --query "Macbook" --interval 10
 ```
 
 ---
 
-## ☁️ Como Rodar em uma VPS (24/7)
+## 🔗 Configuração do Google Sheets (Service Account)
 
-Se quiser deixar a esteira rodando na nuvem sem precisar do computador ligado:
+Para sincronizar suas planilhas diretamente no seu Google Drive:
+1. Acesse o [Google Cloud Console](https://console.cloud.google.com/).
+2. Crie um projeto e ative a **Google Sheets API** e a **Google Drive API**.
+3. Vá em **Contas de Serviço (Service Accounts)** e crie uma nova conta.
+4. Gere uma chave do tipo **JSON** e baixe-a para a pasta do projeto com o nome `credentials.json`.
+5. Crie uma planilha vazia no seu Google Sheets chamada `"Radar de Ofertas - Hardware"`.
+6. Compartilhe a planilha com o e-mail da sua Service Account (ex: `bot@seu-projeto.iam.gserviceaccount.com`) com permissão de **Editor**.
+7. Pronto! A cada execução, o Python criará abas correspondentes ao termo pesquisado.
 
-### Opção A: Com Docker Compose (Recomendado)
+---
+
+## 🤖 Configuração do Telegram
+
+No arquivo `.env`:
+```env
+TELEGRAM_BOT_TOKEN=seu_token_do_bot
+TELEGRAM_CHAT_ID=seu_chat_id
+```
+
+---
+
+## ☁️ Rodando em VPS com Docker
 ```bash
-# Na sua VPS:
-git clone <seu-repo>
-cd black_friday
-cp .env.example .env
-# Edite com seu nano .env colocando o token do Telegram
 docker compose up -d --build
-```
-
-Para ver os logs em tempo real:
-```bash
-docker compose logs -f
-```
-
-### Opção B: Em segundo plano via `nohup` (Linux)
-```bash
-nohup python3 main.py > monitor.log 2>&1 &
-```
-
----
-
-## 🧪 Rodando os Testes Automatizados
-
-A esteira conta com cobertura total de testes unitários e de integração:
-```bash
-pytest
 ```

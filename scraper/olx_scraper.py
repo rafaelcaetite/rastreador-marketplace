@@ -7,10 +7,11 @@ from typing import List, Optional, Any
 from bs4 import BeautifulSoup
 from models import AdItem
 from config import Config
+from scraper.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 
-class OLXScraper:
+class OLXScraper(BaseScraper):
     def __init__(self, config: Config):
         self.config = config
         self.base_url = "https://www.olx.com.br/brasil"
