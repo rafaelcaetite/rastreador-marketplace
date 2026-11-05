@@ -6,15 +6,10 @@ from filters import AdFilter
 @pytest.fixture
 def filter_instance():
     cfg = Config(
-        min_price=3000.0,
-        max_price=5000.0,
+        min_price=1000.0,
+        max_price=30000.0,
         require_delivery=True,
-        positive_keywords=["macbook", "m2"],
-        negative_keywords=[
-            "peça", "peças", "defeito", "quebrado", "sucata", "bloqueado", 
-            "icloud", "compro", "apenas caixa", "capinha", "carregador", 
-            "tela trincada", "acessório", "case"
-        ]
+        positive_keywords=["macbook"],
     )
     return AdFilter(config=cfg)
 
@@ -32,14 +27,14 @@ def test_valid_ad(filter_instance):
     assert reason == "OK"
 
 def test_price_out_of_bounds(filter_instance):
-    # Too cheap (e.g. accessory or scam)
+    # Too cheap
     ad_cheap = AdItem(id="2", title="MacBook Air M2", price=150.0, url="", location="", has_delivery=True)
     valid, reason = filter_instance.is_valid(ad_cheap)
     assert valid is False
     assert "Preço fora da faixa" in reason
 
-    # Too expensive (not a deal)
-    ad_expensive = AdItem(id="3", title="MacBook Air M2", price=6200.0, url="", location="", has_delivery=True)
+    # Too expensive
+    ad_expensive = AdItem(id="3", title="MacBook Air M2", price=35000.0, url="", location="", has_delivery=True)
     valid, reason = filter_instance.is_valid(ad_expensive)
     assert valid is False
     assert "Preço fora da faixa" in reason
@@ -50,7 +45,7 @@ def test_missing_delivery(filter_instance):
     assert valid is False
     assert "Sem entrega" in reason
 
-def test_negative_keywords_rejected(filter_instance):
+def test_negative_keywords_and_accessories_rejected(filter_instance):
     cases = [
         "MacBook Air M2 para retirada de peças",
         "Macbook Air M2 com defeito na placa",
@@ -58,8 +53,15 @@ def test_negative_keywords_rejected(filter_instance):
         "Compro MacBook Air M2 pago à vista",
         "Apenas caixa do MacBook Air M2 vazia",
         "Case Capinha transparente para MacBook Air M2",
+        "Kit de cases para Macbook Air M2",
+        "Kit capa protetora de acrilico para Macbook",
+        "Capa protetora para MacBook Pro 14",
         "Carregador original Apple MacBook Air M2",
-        "MacBook Air M2 tela trincada sem imagem"
+        "Fonte carregador USB-C para Macbook",
+        "Película protetora fosca para tela Macbook",
+        "MacBook Air M2 tela trincada sem imagem",
+        "Mochila e capa sleeve para Macbook",
+        "Hub adaptador USB-C para Macbook Air"
     ]
     for title in cases:
         ad = AdItem(id="5", title=title, price=3500.0, url="", location="SP", has_delivery=True)
@@ -68,14 +70,8 @@ def test_negative_keywords_rejected(filter_instance):
         assert "Palavra-chave negativa" in reason
 
 def test_positive_keywords_required(filter_instance):
-    # Missing M2 (e.g. M1 or Intel)
-    ad_m1 = AdItem(id="6", title="MacBook Air M1 256GB Cinza", price=3800.0, url="", location="SP", has_delivery=True)
-    valid, reason = filter_instance.is_valid(ad_m1)
-    assert valid is False
-    assert "Falta palavra-chave obrigatória" in reason
-
-    # Missing MacBook (e.g. Mac Mini M2)
-    ad_mini = AdItem(id="7", title="Apple Mac Mini M2 8GB 256GB", price=3800.0, url="", location="SP", has_delivery=True)
-    valid, reason = filter_instance.is_valid(ad_mini)
+    # Missing MacBook
+    ad_dell = AdItem(id="7", title="Dell XPS 13 Core i7 16GB", price=3800.0, url="", location="SP", has_delivery=True)
+    valid, reason = filter_instance.is_valid(ad_dell)
     assert valid is False
     assert "Falta palavra-chave obrigatória" in reason

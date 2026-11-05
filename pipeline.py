@@ -47,7 +47,7 @@ class DealPipeline:
                 self.scrapers.append(ShopeeScraper(config))
 
     async def run_cycle(self) -> Dict[str, Any]:
-        """Executa um ciclo completo multi-marketplace de busca, análise, exportação e alerta."""
+        """Executa um ciclo completo multi-marketplace de busca, validação prévia, análise e exportação."""
         logger.info(f"--- Iniciando ciclo de monitoramento para '{self.config.query}' ---")
         
         # 1. Coleta paralela em todos os marketplaces ativos
@@ -61,10 +61,24 @@ class DealPipeline:
             elif isinstance(res, Exception):
                 logger.error(f"Erro no coletor: {res}")
 
-        logger.info(f"Total de anúncios coletados de todos os marketplaces: {len(raw_ads)}")
+        logger.info(f"Total de anúncios coletados brutos: {len(raw_ads)}")
 
-        # 2. Extração semântica de especificações
+        # 2. Validação e Filtragem Prévia (Exclui itens sem entrega, peças, capas e acessórios ANTES de qualquer exportação)
+        valid_ads: List[AdItem] = []
+        ignored_filter = 0
+
         for ad in raw_ads:
+            is_valid, reason = self.filter.is_valid(ad)
+            if not is_valid:
+                logger.debug(f"Descartado [ID {ad.id}]: {reason} - '{ad.title}' (R$ {ad.price})")
+                ignored_filter += 1
+                continue
+            valid_ads.append(ad)
+
+        logger.info(f"Anúncios aprovados após validação de entrega e filtros anti-ruído: {len(valid_ads)}")
+
+        # 3. Extração semântica de especificações apenas dos itens válidos
+        for ad in valid_ads:
             specs = self.spec_extractor.extract(ad.title)
             ad.model_line = specs["model_line"]
             ad.processor = specs["processor"]
@@ -73,29 +87,22 @@ class DealPipeline:
             ad.screen_size = specs["screen_size"]
             ad.sku_key = specs["sku_key"]
 
-        # 3. Motor estatístico de preços (Benchmark de mercado)
-        evaluated_ads = self.pricing_engine.evaluate_deals(raw_ads)
+        # 4. Motor estatístico de preços (Benchmark calculado exclusivamente sobre produtos válidos)
+        evaluated_ads = self.pricing_engine.evaluate_deals(valid_ads)
 
-        # 4. Sincronização com Google Sheets e exportação local (.xlsx e .csv)
+        # 5. Sincronização com Google Sheets e exportação local (.xlsx e .csv) apenas de itens aprovados
         if evaluated_ads:
             excel_path = self.excel_exporter.export(evaluated_ads, self.config.query)
             logger.info(f"📊 Arquivo local atualizado: {excel_path}")
             self.sheets_exporter.export(evaluated_ads, self.config.query)
 
-        # 5. Filtragem e notificação dos anúncios novos
+        # 6. Deduplicação e notificação dos novos anúncios
         new_deals: List[AdItem] = []
-        ignored_filter = 0
         ignored_already_seen = 0
 
         for ad in evaluated_ads:
             if self.db.is_ad_seen(ad.id):
                 ignored_already_seen += 1
-                continue
-
-            is_valid, reason = self.filter.is_valid(ad)
-            if not is_valid:
-                logger.debug(f"Descartado [ID {ad.id}]: {reason} - '{ad.title}' (R$ {ad.price})")
-                ignored_filter += 1
                 continue
 
             logger.info(
@@ -111,12 +118,13 @@ class DealPipeline:
 
         summary = {
             "total_found": len(raw_ads),
+            "valid_count": len(valid_ads),
             "new_deals": new_deals,
             "ignored_filter": ignored_filter,
             "ignored_already_seen": ignored_already_seen
         }
         logger.info(
             f"Ciclo concluído: {len(new_deals)} novas ofertas alertadas, "
-            f"{ignored_filter} fora do critério, {ignored_already_seen} já processados anteriormente."
+            f"{ignored_filter} descartados por filtros/entrega, {ignored_already_seen} já processados anteriormente."
         )
         return summary

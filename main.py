@@ -39,6 +39,7 @@ def parse_args():
     parser.add_argument("--max-price", type=float, default=None, help="Preço máximo em R$")
     parser.add_argument("--interval", type=int, default=None, help="Intervalo em minutos entre varreduras")
     parser.add_argument("--sources", type=str, default=None, help="Marketplaces ativos separados por vírgula (ex: 'olx,ml,shopee')")
+    parser.add_argument("--allow-pickup", action="store_true", help="Permite anúncios sem entrega (apenas retirada local)")
     return parser.parse_args()
 
 async def main():
@@ -60,6 +61,8 @@ async def main():
             config.active_sources = ["olx", "ml", "shopee"]
         else:
             config.active_sources = [s.strip().lower() for s in args.sources.split(",") if s.strip()]
+    if args.allow_pickup:
+        config.require_delivery = False
 
     logger.info("==================================================")
     logger.info("🚀 RASTREADOR DE MARKETPLACE INICIADO")
