@@ -89,7 +89,7 @@ Cada termo consultado gera uma aba independente com 14 colunas normalizadas:
 ### 1. Clonar e instalar dependências
 
 ```bash
-git clone https://github.com/seu-usuario/rastreador-marketplace.git
+git clone https://github.com/rafaelcaetite/rastreador-marketplace.git
 cd rastreador-marketplace
 pip install -r requirements.txt
 cp .env.example .env
