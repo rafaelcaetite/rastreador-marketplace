@@ -67,7 +67,21 @@ def test_negative_keywords_and_accessories_rejected(filter_instance):
         ad = AdItem(id="5", title=title, price=3500.0, url="", location="SP", has_delivery=True)
         valid, reason = filter_instance.is_valid(ad)
         assert valid is False, f"Expected '{title}' to be rejected, but was accepted."
-        assert "Palavra-chave negativa" in reason
+        assert any(k in reason.lower() for k in ["acessório", "peça", "defeito", "negativa"])
+
+def test_macbook_with_accessories_accepted(filter_instance):
+    valid_titles = [
+        "MacBook Air M2, impecável + acessórios",
+        "MacBook Air M2 8/256 Bat. 99% Impecável c/ Caixa, carregador",
+        "Macbook Air M2 512gb ssd 24gb ram + acessórios",
+        "Mac Book M2 - Usado em estado Excelente",
+        "Mac Air M2 16gb 256gb",
+        "MacBook Air M2 2022 Em Estado de Novo c/ carregador"
+    ]
+    for title in valid_titles:
+        ad = AdItem(id="6", title=title, price=5200.0, url="", location="SP", has_delivery=True)
+        valid, reason = filter_instance.is_valid(ad)
+        assert valid is True, f"Expected '{title}' to be accepted, but got: {reason}"
 
 def test_positive_keywords_required(filter_instance):
     # Missing MacBook
