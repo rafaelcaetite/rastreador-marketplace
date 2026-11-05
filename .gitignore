@@ -1,7 +1,23 @@
+# Ambiente e Segredos
 .env
+credentials.json
+*.secret.json
+service_account.json
+
+# Banco de dados e Cache
 deals.db
-*.pyc
+*.sqlite3
 __pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
+
+# Dados gerados localmente
+data/*.csv
+data/*.xlsx
+!data/.gitkeep
+
+# IDEs e Editores
 .vscode/
 .idea/
+*.swp
