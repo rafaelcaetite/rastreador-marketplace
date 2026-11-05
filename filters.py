@@ -1,3 +1,4 @@
+import re
 import unicodedata
 from typing import Tuple
 from models import AdItem
@@ -27,14 +28,16 @@ class AdFilter:
 
         normalized_title = normalize_text(ad.title)
 
-        # 3. Filtro Negativo (Anti-ruído/peças/defeitos)
+        # 3. Filtro Negativo (Anti-ruído/peças/defeitos) com limite de palavra (\b) para evitar 'impecável' bater em 'peça'
         for neg in self.normalized_negatives:
-            if neg in normalized_title:
+            pattern = r"\b" + re.escape(neg) + r"\b"
+            if re.search(pattern, normalized_title):
                 return False, f"Palavra-chave negativa detectada: '{neg}'"
 
         # 4. Filtro Positivo (Garante que é o item exato)
         for pos in self.normalized_positives:
-            if pos not in normalized_title:
+            pattern = r"\b" + re.escape(pos) + r"\b"
+            if not re.search(pattern, normalized_title):
                 return False, f"Falta palavra-chave obrigatória: '{pos}'"
 
         return True, "OK"

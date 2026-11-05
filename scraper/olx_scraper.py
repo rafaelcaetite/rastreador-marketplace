@@ -1,9 +1,9 @@
+import asyncio
 import json
 import logging
 import re
 import urllib.parse
 from typing import List, Optional, Any
-import httpx
 from bs4 import BeautifulSoup
 from models import AdItem
 from config import Config
@@ -14,24 +14,6 @@ class OLXScraper:
     def __init__(self, config: Config):
         self.config = config
         self.base_url = "https://www.olx.com.br/brasil"
-        self.headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/128.0.0.0 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Cache-Control": "no-cache",
-            "sec-ch-ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-            "sec-fetch-site": "none",
-            "sec-fetch-user": "?1",
-            "upgrade-insecure-requests": "1",
-        }
 
     def clean_price(self, raw_price: Any) -> float:
         if raw_price is None:
@@ -65,7 +47,6 @@ class OLXScraper:
         ads_found: List[AdItem] = []
         page_props = data.get("props", {}).get("pageProps", {})
 
-        # Tenta múltiplos caminhos possíveis no schema do Next.js da OLX
         raw_ads = (
             page_props.get("ads")
             or page_props.get("listingProps", {}).get("adList")
@@ -83,7 +64,6 @@ class OLXScraper:
             price = self.clean_price(raw_p)
             url = item.get("url") or ""
 
-            # Localização
             location = item.get("location") or item.get("locationDisplay") or ""
             if not location:
                 loc_obj = item.get("locations", {})
@@ -91,7 +71,6 @@ class OLXScraper:
                 city = loc_obj.get("municipality") or ""
                 location = f"{city} - {uf}" if city and uf else (city or uf or "Brasil")
 
-            # OLX Pay / Entrega
             has_delivery = bool(
                 item.get("olxDelivery") 
                 or item.get("olxPay") 
@@ -99,7 +78,6 @@ class OLXScraper:
                 or item.get("hasOlxDelivery")
             )
 
-            # Imagem principal
             image_url = None
             images = item.get("images") or []
             if images and isinstance(images, list):
@@ -122,52 +100,10 @@ class OLXScraper:
 
         return ads_found
 
-    def parse_dom_fallback(self, soup: BeautifulSoup) -> List[AdItem]:
-        ads_found: List[AdItem] = []
-        cards = soup.find_all("div", attrs={"data-ds-component": "DS-AdCard"})
-        if not cards:
-            cards = soup.find_all("section", attrs={"data-lurker-list": True})
-
-        for card in cards:
-            link_tag = card.find("a", href=True)
-            if not link_tag:
-                continue
-
-            url = link_tag["href"]
-            # Extrair id da URL (ex: ...-13456789)
-            id_match = re.search(r"-(\d{6,12})(?:\?|$)", url)
-            ad_id = id_match.group(1) if id_match else url
-
-            title_tag = card.find(["h2", "h3"])
-            title = title_tag.get_text(strip=True) if title_tag else ""
-
-            price_tag = card.find(attrs={"aria-label": re.compile(r"Preço", re.I)})
-            raw_price = price_tag.get_text(strip=True) if price_tag else ""
-            price = self.clean_price(raw_price)
-
-            img_tag = card.find("img")
-            img_url = img_tag.get("src") if img_tag else None
-
-            # Checar badge de entrega
-            has_delivery = "entrega" in card.get_text().lower() or "olx pay" in card.get_text().lower()
-
-            if title and price > 0:
-                ads_found.append(AdItem(
-                    id=ad_id,
-                    title=title,
-                    price=price,
-                    url=url,
-                    location="Brasil",
-                    has_delivery=has_delivery,
-                    image_url=img_url
-                ))
-
-        return ads_found
-
     def parse_html(self, html_content: str) -> List[AdItem]:
         soup = BeautifulSoup(html_content, "html.parser")
         
-        # 1. Tenta extrair tag __NEXT_DATA__
+        # 1. Tenta extrair tag __NEXT_DATA__ (quando presente e estruturada)
         next_data_tag = soup.find("script", id="__NEXT_DATA__")
         if next_data_tag and next_data_tag.string:
             try:
@@ -178,8 +114,78 @@ class OLXScraper:
             except Exception as e:
                 logger.warning(f"Erro ao parsear JSON __NEXT_DATA__: {e}")
 
-        # 2. Fallback para parsing do DOM
-        return self.parse_dom_fallback(soup)
+        # 2. Extrai de seções com class 'olx-adcard' (layout padrão atual da OLX)
+        ads_found: List[AdItem] = []
+        sections = soup.find_all("section", class_=lambda c: c and "olx-adcard" in str(c))
+        if not sections:
+            sections = soup.find_all("div", attrs={"data-ds-component": "DS-AdCard"})
+
+        for s in sections:
+            link = s.find("a", href=lambda h: h and re.search(r"-(\d{8,12})(?:\?|$)", str(h)))
+            if not link:
+                continue
+
+            url = link.get("href", "")
+            id_match = re.search(r"-(\d{8,12})(?:\?|$)", url)
+            ad_id = id_match.group(1) if id_match else url
+
+            # Título
+            heading = s.find(["h2", "h3"]) or link
+            title = heading.get_text(strip=True) if heading else ""
+
+            # Preço
+            price_tag = s.find(attrs={"aria-label": re.compile(r"Preço", re.I)}) or s.find(class_=lambda c: c and "price" in str(c).lower())
+            raw_price = price_tag.get_text(strip=True) if price_tag else ""
+            if not raw_price:
+                price_match = re.search(r"R\$\s*([\d\.]+)", s.get_text())
+                raw_price = price_match.group(0) if price_match else "0"
+            price = self.clean_price(raw_price)
+
+            # Localização
+            full_text = s.get_text(" | ", strip=True)
+            location = "Brasil"
+            loc_match = re.search(r"\|\s*([A-Za-zÀ-ÖØ-öø-ÿ\s]+,\s*[A-Za-zÀ-ÖØ-öø-ÿ\s]+)\s*\|", full_text)
+            if loc_match:
+                location = loc_match.group(1).strip()
+
+            # Entrega / OLX Pay
+            card_text_lower = s.get_text().lower()
+            has_delivery = (
+                "frete" in card_text_lower
+                or "entrega" in card_text_lower
+                or "garantia da olx" in card_text_lower
+                or "olx pay" in card_text_lower
+            )
+
+            # Imagem
+            img = s.find("img")
+            img_url = (img.get("src") or img.get("data-src")) if img else None
+
+            if ad_id and title:
+                ads_found.append(AdItem(
+                    id=ad_id,
+                    title=title,
+                    price=price,
+                    url=url,
+                    location=location,
+                    has_delivery=has_delivery,
+                    image_url=img_url
+                ))
+
+        return ads_found
+
+    def _fetch_html_sync(self, url: str) -> str:
+        """Executa requisição impersonando TLS/HTTP2 de navegador moderno para contornar Cloudflare."""
+        try:
+            from curl_cffi import requests as cffi_requests
+            resp = cffi_requests.get(url, impersonate="chrome124", timeout=20)
+            if resp.status_code == 200:
+                return resp.text
+            logger.error(f"OLX retornou status {resp.status_code} via curl_cffi")
+            return ""
+        except Exception as e:
+            logger.error(f"Erro ao consultar OLX via curl_cffi: {e}")
+            return ""
 
     async def search(self, query: Optional[str] = None) -> List[AdItem]:
         search_term = query or self.config.query
@@ -190,12 +196,12 @@ class OLXScraper:
         encoded_query = urllib.parse.urlencode(params)
         url = f"{self.base_url}?{encoded_query}"
 
-        timeout = httpx.Timeout(20.0, connect=10.0)
-        async with httpx.AsyncClient(headers=self.headers, timeout=timeout, follow_redirects=True) as client:
-            logger.info(f"Buscando anúncios na OLX: {url}")
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                logger.error(f"OLX retornou status {resp.status_code}")
-                return []
-            
-            return self.parse_html(resp.text)
+        logger.info(f"Buscando anúncios na OLX: {url}")
+        # Executa a requisição em threadpool assíncrona
+        html_content = await asyncio.to_thread(self._fetch_html_sync, url)
+        if not html_content:
+            return []
+
+        ads = self.parse_html(html_content)
+        logger.info(f"Total de anúncios parseados da página: {len(ads)}")
+        return ads

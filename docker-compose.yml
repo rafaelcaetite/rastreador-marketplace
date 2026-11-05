@@ -1,0 +1,9 @@
+services:
+  deal-monitor:
+    build: .
+    container_name: olx_deal_monitor
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./deals.db:/app/deals.db
