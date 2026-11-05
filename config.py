@@ -19,11 +19,14 @@ class Config:
     max_price: float = 30000.0
     require_delivery: bool = True
     interval_minutes: int = 10
+    max_pages: int = 100
+    max_days: int = 30
     db_path: str = "deals.db"
     dry_run: bool = False
     google_credentials_file: str = "credentials.json"
     google_sheet_name: str = "Rastreador de Marketplace"
     google_sheet_id: str = ""
+    ml_access_token: str = ""
     shopee_cookie: str = ""
     active_sources: List[str] = field(default_factory=lambda: ["olx", "ml", "shopee"])
     positive_keywords: List[str] = field(default_factory=lambda: ["macbook"])
@@ -46,11 +49,14 @@ class Config:
         max_p = float(os.getenv("MAX_PRICE", "30000.0"))
         req_deliv = os.getenv("REQUIRE_DELIVERY", "true").lower() in ("true", "1", "yes")
         interval = int(os.getenv("INTERVAL_MINUTES", "10"))
+        pages = int(os.getenv("MAX_PAGES", "100"))
+        days = int(os.getenv("MAX_DAYS", "30"))
         db = os.getenv("DB_PATH", "deals.db")
         dry = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes") or not token
         g_cred = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
         g_sheet = os.getenv("GOOGLE_SHEET_NAME", "Rastreador de Marketplace")
         g_id = os.getenv("GOOGLE_SHEET_ID", "").strip()
+        ml_token = os.getenv("MERCADOLIVRE_ACCESS_TOKEN", "").strip()
         shopee_c = os.getenv("SHOPEE_COOKIE", "").strip()
 
         sources_raw = os.getenv("ACTIVE_SOURCES", "olx,ml,shopee").lower()
@@ -68,11 +74,14 @@ class Config:
             max_price=max_p,
             require_delivery=req_deliv,
             interval_minutes=interval,
+            max_pages=pages,
+            max_days=days,
             db_path=db,
             dry_run=dry,
             google_credentials_file=g_cred,
             google_sheet_name=g_sheet,
             google_sheet_id=g_id,
+            ml_access_token=ml_token,
             shopee_cookie=shopee_c,
             active_sources=sources,
             positive_keywords=positives

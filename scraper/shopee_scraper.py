@@ -53,6 +53,15 @@ class ShopeeScraper(BaseScraper):
 
     async def search(self, query: Optional[str] = None) -> List[AdItem]:
         search_term = query or self.config.query
+
+        if not self.config.shopee_cookie:
+            logger.warning(
+                "Shopee: Nenhum SHOPEE_COOKIE configurado. "
+                "Para ativar a busca na Shopee, adicione o cookie ao seu .env. "
+                "Ignorando Shopee nesta varredura."
+            )
+            return []
+
         params = {
             "by": "relevancy",
             "keyword": search_term,

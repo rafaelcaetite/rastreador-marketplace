@@ -4,7 +4,7 @@ Pipeline autônomo em Python para monitoramento de ofertas em tempo real nos pri
 
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-pytest%2017%2F17%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-pytest%2021%2F21%20passing-brightgreen)]()
 [![Code Style](https://img.shields.io/badge/code%20style-pep8-black)](https://peps.python.org/pep-0008/)
 
 ---
@@ -98,15 +98,46 @@ cp .env.example .env
 ### 2. Modos de Uso da CLI
 
 ```bash
-# Execução pontual com saída no terminal (modo dry-run / simulação)
-python main.py --dry-run --once --query "Macbook Air M2"
+# Execução pontual com varredura dos últimos 30 dias (modo dry-run / simulação)
+python main.py --dry-run --once --query "Macbook Air M2" --days 30
 
-# Filtrar por marketplaces específicos (olx, ml ou shopee)
-python main.py --dry-run --once --query "Playstation 5" --sources olx,ml
+# Filtrar por marketplaces específicos (olx, ml ou shopee) e limitar páginas
+python main.py --dry-run --once --query "Playstation 5" --sources olx --days 15 --pages 20
 
-# Execução em modo contínuo (daemon a cada 10 minutos)
+# Permitir anúncios sem entrega (apenas retirada local)
+python main.py --dry-run --once --query "Macbook" --allow-pickup
+
+# Execução em modo contínuo (daemon a cada 10 minutos, monitorando novos anúncios)
 python main.py --query "Macbook" --interval 10
 ```
+
+---
+
+## Integrações
+
+### OLX Brasil
+
+A varredura da OLX utiliza o cliente `curl_cffi` com impersonação de TLS e HTTP/2 (Chrome 124) para contornar proteções perimetrais da Cloudflare sem necessidade de navegador headless pesado. O sistema realiza paginação contínua e interrompe a busca assim que atinge a janela limite de dias informada em `--days` (padrão: 30 dias).
+
+### Mercado Livre
+
+A API oficial de buscas do Mercado Livre (`https://api.mercadolibre.com/sites/MLB/search`) exige autenticação via token Bearer OAuth:
+1. Acesse o [Mercado Livre Developers](https://developers.mercadolivre.com.br/) e crie uma aplicação gratuita.
+2. Gere seu `Access Token` e configure no arquivo `.env`:
+   ```env
+   MERCADOLIVRE_ACCESS_TOKEN=APP_USR-...
+   ```
+3. Se a variável estiver vazia, o pipeline continua executando normalmente nos demais marketplaces configurados.
+
+### Shopee Brasil
+
+A Shopee exige um identificador de sessão para consultas diretas:
+1. Obtenha o valor do cookie `SPC_EC` ou o cabeçalho `Cookie` completo a partir de uma requisição autenticada no navegador.
+2. Adicione ao `.env`:
+   ```env
+   SHOPEE_COOKIE="SPC_EC=...; ..."
+   ```
+3. Se ausente, a Shopee é ignorada e os demais marketplaces prosseguem sem interrupção.
 
 ---
 

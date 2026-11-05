@@ -38,6 +38,8 @@ def parse_args():
     parser.add_argument("--min-price", type=float, default=None, help="Preço mínimo em R$")
     parser.add_argument("--max-price", type=float, default=None, help="Preço máximo em R$")
     parser.add_argument("--interval", type=int, default=None, help="Intervalo em minutos entre varreduras")
+    parser.add_argument("--pages", type=int, default=None, help="Quantidade máxima de páginas para varrer por plataforma (padrão: 100)")
+    parser.add_argument("--days", type=int, default=None, help="Janela máxima de dias para anúncios (padrão: 30)")
     parser.add_argument("--sources", type=str, default=None, help="Marketplaces ativos separados por vírgula (ex: 'olx,ml,shopee')")
     parser.add_argument("--allow-pickup", action="store_true", help="Permite anúncios sem entrega (apenas retirada local)")
     return parser.parse_args()
@@ -56,6 +58,10 @@ async def main():
         config.max_price = args.max_price
     if args.interval is not None:
         config.interval_minutes = args.interval
+    if args.pages is not None:
+        config.max_pages = max(1, args.pages)
+    if args.days is not None:
+        config.max_days = max(1, args.days)
     if args.sources:
         if args.sources.lower() == "all":
             config.active_sources = ["olx", "ml", "shopee"]

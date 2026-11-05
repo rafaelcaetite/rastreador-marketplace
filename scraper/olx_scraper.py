@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import urllib.parse
+from datetime import datetime, timedelta
 from typing import List, Optional, Any
 from bs4 import BeautifulSoup
 from models import AdItem
@@ -11,10 +12,60 @@ from scraper.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 
+MONTH_MAP = {
+    "jan": 1, "fev": 2, "mar": 3, "abr": 4, "mai": 5, "jun": 6,
+    "jul": 7, "ago": 8, "set": 9, "out": 10, "nov": 11, "dez": 12
+}
+
 class OLXScraper(BaseScraper):
     def __init__(self, config: Config):
         self.config = config
         self.base_url = "https://www.olx.com.br/brasil"
+
+    @staticmethod
+    def parse_olx_date(date_str: str, now: Optional[datetime] = None) -> datetime:
+        """Converte strings de data da OLX ('Hoje, 10:27', 'Ontem, 19:56', '3 de nov, 21:01') em datetime."""
+        now = now or datetime.now()
+        if not date_str:
+            return now
+
+        clean = date_str.strip().lower()
+
+        m_hoje = re.search(r"hoje,?\s*(\d{1,2}):(\d{2})", clean)
+        if m_hoje:
+            return now.replace(
+                hour=int(m_hoje.group(1)),
+                minute=int(m_hoje.group(2)),
+                second=0,
+                microsecond=0
+            )
+
+        m_ontem = re.search(r"ontem,?\s*(\d{1,2}):(\d{2})", clean)
+        if m_ontem:
+            d = now - timedelta(days=1)
+            return d.replace(
+                hour=int(m_ontem.group(1)),
+                minute=int(m_ontem.group(2)),
+                second=0,
+                microsecond=0
+            )
+
+        m_full = re.search(r"(\d{1,2})\s+de\s+([a-z]{3}),?\s*(\d{1,2}):(\d{2})", clean)
+        if m_full:
+            day = int(m_full.group(1))
+            month_abbr = m_full.group(2)
+            month = MONTH_MAP.get(month_abbr, now.month)
+            hour = int(m_full.group(3))
+            minute = int(m_full.group(4))
+            year = now.year
+            if month > now.month:
+                year -= 1
+            try:
+                return datetime(year, month, day, hour, minute)
+            except ValueError:
+                return now
+
+        return now
 
     def clean_price(self, raw_price: Any) -> float:
         if raw_price is None:
@@ -143,11 +194,21 @@ class OLXScraper(BaseScraper):
             price = self.clean_price(raw_price)
 
             # Localização
-            full_text = s.get_text(" | ", strip=True)
-            location = "Brasil"
-            loc_match = re.search(r"\|\s*([A-Za-zÀ-ÖØ-öø-ÿ\s]+,\s*[A-Za-zÀ-ÖØ-öø-ÿ\s]+)\s*\|", full_text)
-            if loc_match:
-                location = loc_match.group(1).strip()
+            loc_tag = s.find("p", class_=re.compile(r"olx-adcard__location", re.I))
+            if loc_tag:
+                location = loc_tag.get_text(strip=True)
+            else:
+                full_text = s.get_text(" | ", strip=True)
+                location = "Brasil"
+                loc_match = re.search(r"\|\s*([A-Za-zÀ-ÖØ-öø-ÿ\s]+,\s*[A-Za-zÀ-ÖØ-öø-ÿ\s]+)\s*\|", full_text)
+                if loc_match:
+                    location = loc_match.group(1).strip()
+
+            # Data de publicação
+            date_tag = s.find("p", class_=re.compile(r"olx-adcard__date|date", re.I))
+            raw_date = date_tag.get_text(strip=True) if date_tag else ""
+            pub_date = self.parse_olx_date(raw_date)
+            created_at_str = pub_date.strftime("%Y-%m-%d %H:%M:%S")
 
             # Entrega / OLX Pay
             card_text_lower = s.get_text().lower()
@@ -170,7 +231,9 @@ class OLXScraper(BaseScraper):
                     url=url,
                     location=location,
                     has_delivery=has_delivery,
-                    image_url=img_url
+                    source="OLX",
+                    image_url=img_url,
+                    created_at=created_at_str
                 ))
 
         return ads_found
@@ -190,19 +253,76 @@ class OLXScraper(BaseScraper):
 
     async def search(self, query: Optional[str] = None) -> List[AdItem]:
         search_term = query or self.config.query
-        params = {
-            "q": search_term,
-            "sf": "1"  # ordenar por mais recentes
-        }
-        encoded_query = urllib.parse.urlencode(params)
-        url = f"{self.base_url}?{encoded_query}"
+        all_ads: List[AdItem] = []
+        seen_ids = set()
 
-        logger.info(f"Buscando anúncios na OLX: {url}")
-        # Executa a requisição em threadpool assíncrona
-        html_content = await asyncio.to_thread(self._fetch_html_sync, url)
-        if not html_content:
-            return []
+        max_pages = max(1, getattr(self.config, "max_pages", 100))
+        max_days = max(1, getattr(self.config, "max_days", 30))
+        cutoff_date = datetime.now() - timedelta(days=max_days)
 
-        ads = self.parse_html(html_content)
-        logger.info(f"Total de anúncios parseados da página: {len(ads)}")
-        return ads
+        logger.info(
+            f"Iniciando busca na OLX para '{search_term}' "
+            f"(janela histórica: {max_days} dias, limite: {max_pages} páginas)..."
+        )
+
+        for page in range(1, max_pages + 1):
+            params = {
+                "q": search_term,
+                "sf": "1"  # ordenar por mais recentes
+            }
+            if page > 1:
+                params["o"] = str(page)
+
+            encoded_query = urllib.parse.urlencode(params)
+            url = f"{self.base_url}?{encoded_query}"
+
+            logger.info(f"Buscando na OLX (Página {page}/{max_pages}): {url}")
+            html_content = await asyncio.to_thread(self._fetch_html_sync, url)
+            if not html_content:
+                logger.warning(f"Sem resposta na página {page} da OLX. Encerrando paginação.")
+                break
+
+            page_ads = self.parse_html(html_content)
+            if not page_ads:
+                logger.info(f"Página {page} não retornou nenhum anúncio. Fim dos resultados.")
+                break
+
+            new_in_page = 0
+            reached_cutoff = False
+
+            for ad in page_ads:
+                try:
+                    ad_dt = datetime.strptime(ad.created_at, "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    ad_dt = datetime.now()
+
+                if ad_dt < cutoff_date:
+                    reached_cutoff = True
+                    continue
+
+                if ad.id not in seen_ids:
+                    seen_ids.add(ad.id)
+                    all_ads.append(ad)
+                    new_in_page += 1
+
+            logger.info(
+                f"OLX Página {page}: {len(page_ads)} anúncios encontrados "
+                f"({new_in_page} válidos na janela de {max_days} dias)."
+            )
+
+            if reached_cutoff:
+                logger.info(
+                    f"Limite da janela histórica de {max_days} dias alcançado na página {page}. "
+                    f"Encerrando busca na OLX."
+                )
+                break
+
+            if new_in_page == 0:
+                logger.info(f"Nenhum anúncio novo ou válido na página {page}. Encerrando busca.")
+                break
+
+            if page < max_pages:
+                await asyncio.sleep(1.0)
+
+        logger.info(f"Total de anúncios consolidados da OLX: {len(all_ads)}")
+        return all_ads

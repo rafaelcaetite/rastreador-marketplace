@@ -23,7 +23,7 @@ def test_format_message(sample_ad):
     assert "MacBook Air M2" in msg
     assert "4.300,00" in msg
     assert "São Paulo - SP" in msg
-    assert "Disponível (OLX Pay)" in msg
+    assert "Disponível (OLX Pay / Envios)" in msg
     assert sample_ad.url in msg
 
 @pytest.mark.anyio

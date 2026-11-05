@@ -36,3 +36,28 @@ def test_clean_price():
     assert scraper.clean_price(4200) == 4200.0
     assert scraper.clean_price("4200") == 4200.0
     assert scraper.clean_price(None) == 0.0
+
+def test_parse_olx_date():
+    from datetime import datetime
+    ref = datetime(2026, 11, 5, 12, 0, 0)
+    
+    # Hoje
+    d_hoje = OLXScraper.parse_olx_date("Hoje, 10:27", now=ref)
+    assert d_hoje.year == 2026
+    assert d_hoje.month == 11
+    assert d_hoje.day == 5
+    assert d_hoje.hour == 10
+    assert d_hoje.minute == 27
+
+    # Ontem
+    d_ontem = OLXScraper.parse_olx_date("Ontem, 19:56", now=ref)
+    assert d_ontem.day == 4
+    assert d_ontem.hour == 19
+    assert d_ontem.minute == 56
+
+    # Data por extenso
+    d_full = OLXScraper.parse_olx_date("28 de out, 14:10", now=ref)
+    assert d_full.month == 10
+    assert d_full.day == 28
+    assert d_full.hour == 14
+    assert d_full.minute == 10
