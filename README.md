@@ -1,105 +1,167 @@
-# 🚀 Plataforma de Inteligência de Ofertas (OLX + Mercado Livre -> Google Sheets & Telegram)
+<div align="center">
 
-Plataforma autônoma em Python para monitoramento, extração de dados e inteligência estatística de preços de eletrônicos e hardware, com categorização semântica, cálculo de desconto em relação à média de mercado e exportação automática para **Google Sheets** (com abas dedicadas por produto) e alertas no **Telegram**.
+# 🛒 Rastreador de Marketplace
 
----
+**Monitoramento multi-plataforma de ofertas em tempo real com categorização automática, benchmark estatístico de preços e sincronização com Google Sheets e Telegram.**
 
-## 🌟 Principais Funcionalidades
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Architecture: Modular](https://img.shields.io/badge/architecture-SOLID%20%2F%20modular-brightgreen)]()
 
-1. **Inteligência de Mercado e Benchmark de Preços:**
-   * Agrupa anúncios por **SKU canônico** (ex: `MacBook Air | Apple M2 | 8GB | 256GB`).
-   * Calcula a média de mercado do modelo exato e o desconto percentual.
-   * Classifica automaticamente cada oferta:
-     * 🔥 **SUPER OPORTUNIDADE** ($\ge 20\%$ abaixo da média)
-     * ✅ **BOM PREÇO** ($10\%$ a $19.9\%$ abaixo da média)
-     * ⚖️ **PREÇO NA MÉDIA** ($-10\%$ a $+9.9\%$ da média)
-     * ⚠️ **ACIMA DA MÉDIA** ($> 10\%$ acima da média)
-
-2. **Extrator Semântico de Hardware:**
-   * Identifica automaticamente a partir de títulos e descrições:
-     * **Linha:** MacBook Air, MacBook Pro, MacBook
-     * **Processador:** Apple M1, M1 Pro/Max, M2, M3, M4, Intel Core i5/i7
-     * **Memória RAM:** 8GB, 16GB, 24GB, 32GB, 64GB
-     * **Armazenamento:** 128GB, 256GB, 512GB, 1TB, 2TB
-     * **Tela:** 13", 13.6", 14", 15", 16"
-
-3. **Exportação Dinâmica para Planilhas:**
-   * **Google Sheets:** Conecta via `gspread` e cria automaticamente uma **nova Aba (Worksheet)** para cada termo de busca (ex: aba `"MacBook"`, aba `"Macbook Air M2"`).
-   * **Backup Local Automático:** Sempre gera e atualiza planilhas em `data/<termo>.xlsx` e `data/<termo>.csv` com 14 colunas estruturadas e auto-ajustadas.
-
-4. **Multi-Fonte e Resiliência Anti-Bot:**
-   * Coletor otimizado com `curl_cffi` para contornar Cloudflare na OLX.
-   * Conector preparado para Mercado Livre.
-   * SQLite (`deals.db`) para deduplicação instantânea.
+</div>
 
 ---
 
-## 📊 Estrutura das Colunas na Planilha
+## 📌 Visão Geral
+
+O **Rastreador de Marketplace** é uma solução de engenharia de dados e automação desenvolvida para monitorar os três maiores marketplaces do Brasil em um único fluxo unificado:
+* 🟢 **OLX Brasil**
+* 🟡 **Mercado Livre**
+* 🟠 **Shopee**
+
+A esteira extrai anúncios continuamente, categoriza especificações de hardware (Modelo, Chip, RAM, Armazenamento), calcula a **média de mercado em tempo real** para cada SKU e destaca automaticamente quando um item está com preço de oportunidade.
+
+---
+
+## 🏗️ Arquitetura
+
+O projeto foi construído seguindo princípios **SOLID**, design patterns (*Strategy* para coletores, *Pipeline* para orquestração) e separação estrita de responsabilidades:
+
+```text
+rastreador-marketplace/
+├── config.py                 # Configuração centralizada via Dataclass e variáveis de ambiente
+├── models.py                 # Modelo canônico de dados (AdItem)
+├── database.py               # Camada de persistência e deduplicação (SQLite)
+├── filters.py                # Pipeline de validação com filtros de preço e termos negativos
+├── pipeline.py               # Orquestrador do ciclo de vida da coleta
+├── main.py                   # Interface de Linha de Comando (CLI)
+│
+├── scraper/                  # Camada de Coleta (Strategy Pattern)
+│   ├── base_scraper.py       # Interface abstrata BaseScraper
+│   ├── olx_scraper.py        # Coletor OLX via curl_cffi (bypass Cloudflare)
+│   ├── ml_scraper.py         # Coletor Mercado Livre
+│   └── shopee_scraper.py     # Coletor Shopee Brasil
+│
+├── analyzer/                 # Camada de Inteligência e Processamento
+│   ├── spec_extractor.py     # Extrator semântico de especificações de hardware
+│   └── pricing_engine.py     # Motor estatístico de benchmark e cálculo de desconto
+│
+├── exporter/                 # Camada de Exportação
+│   ├── sheets_exporter.py    # Sincronização Google Sheets (cria aba por termo)
+│   └── excel_exporter.py     # Exportação local estruturada (.xlsx e .csv)
+│
+└── notifier/                 # Camada de Notificação
+    └── telegram_notifier.py  # Bot do Telegram com fotos, métricas e botões inline
+```
+
+---
+
+## 📈 Lógica de Benchmark de Preços
+
+Para responder se uma oferta é realmente vantajosa, o motor estatístico agrupa os produtos por **SKU Canônico** (ex: `MacBook Air | Apple M2 | 8GB | 256GB`) e calcula:
+
+$$\text{Desconto} = \frac{\text{Preço Médio do SKU} - \text{Preço Anunciado}}{\text{Preço Médio do SKU}} \times 100$$
+
+* 🔥 **SUPER OPORTUNIDADE:** $\ge 20\%$ abaixo da média do mesmo produto.
+* ✅ **BOM PREÇO:** Entre $10\%$ e $19.9\%$ abaixo da média.
+* ⚖️ **PREÇO NA MÉDIA:** Entre $-10\%$ e $+9.9\%$ da média.
+* ⚠️ **ACIMA DA MÉDIA:** Mais de $10\%$ mais caro que a média de mercado.
+
+---
+
+## 📊 Estrutura da Planilha Gerada
+
+Cada busca gera (ou atualiza) uma aba própria no Google Sheets e um arquivo correspondente em `data/`:
 
 | Coluna | Descrição |
 | :--- | :--- |
-| **Data/Hora** | Timestamp da coleta (`DD/MM/AAAA HH:MM`) |
-| **Fonte** | Origem do anúncio (`OLX` ou `Mercado Livre`) |
+| **Data/Hora** | Data e horário da detecção |
+| **Fonte** | `OLX`, `Mercado Livre` ou `Shopee` |
 | **Linha** | Ex: `MacBook Air`, `MacBook Pro` |
 | **Processador** | Ex: `Apple M2`, `Apple M1 Pro` |
-| **Memória RAM** | Ex: `8GB`, `16GB` |
+| **Memória RAM** | Ex: `8GB`, `16GB`, `24GB` |
 | **Armazenamento** | Ex: `256GB`, `512GB`, `1TB` |
-| **Preço (R$)** | Preço anunciado pelo vendedor |
-| **Média Mercado (R$)** | Média de preço calculada para esse SKU |
+| **Preço (R$)** | Valor anunciado pelo vendedor |
+| **Média Mercado (R$)** | Preço médio calculado para aquele SKU |
 | **Desconto vs Média (%)** | Percentual de economia em relação à média |
-| **Avaliação da Oferta** | Classificação (ex: `🔥 SUPER OPORTUNIDADE`, `✅ BOM PREÇO`) |
-| **Título do Anúncio** | Nome original postado |
-| **Localização** | Cidade e Estado |
+| **Avaliação da Oferta** | Classificação algorítmica |
+| **Título do Anúncio** | Nome original do anúncio |
+| **Localização** | Cidade / Estado |
 | **Entrega** | `Sim` (OLX Pay / Envios) ou `Não` |
-| **Link do Anúncio** | URL direta para compra |
+| **Link do Anúncio** | Link direto para compra |
 
 ---
 
-## ⚡ Como Rodar o Projeto
+## 🚀 Como Executar
 
-### 1. Instalar Dependências
+### 1. Instalação
+
 ```bash
+git clone https://github.com/seu-usuario/rastreador-marketplace.git
+cd rastreador-marketplace
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-### 2. Rodar Teste no Terminal (com geração de planilha)
+### 2. Execução Pontual (Simulação / Dry-Run)
+
 ```bash
-# Busca qualquer produto e gera a planilha correspondente em data/
+# Busca qualquer item e gera planilha em data/
 python main.py --dry-run --once --query "Macbook Air M2"
-```
-A planilha formatada será salva imediatamente em `data/macbook_air_m2.xlsx` e `data/macbook_air_m2.csv`.
 
-### 3. Rodar a Esteira Contínua (a cada 10 minutos)
+# Filtrar por marketplaces específicos
+python main.py --dry-run --once --query "Playstation 5" --sources olx,ml
+```
+
+### 3. Execução Contínua em Segundo Plano
+
 ```bash
 python main.py --query "Macbook" --interval 10
 ```
 
 ---
 
-## 🔗 Configuração do Google Sheets (Service Account)
+## ☁️ Configuração do Google Sheets
 
-Para sincronizar suas planilhas diretamente no seu Google Drive:
-1. Acesse o [Google Cloud Console](https://console.cloud.google.com/).
-2. Crie um projeto e ative a **Google Sheets API** e a **Google Drive API**.
-3. Vá em **Contas de Serviço (Service Accounts)** e crie uma nova conta.
-4. Gere uma chave do tipo **JSON** e baixe-a para a pasta do projeto com o nome `credentials.json`.
-5. Crie uma planilha vazia no seu Google Sheets chamada `"Radar de Ofertas - Hardware"`.
-6. Compartilhe a planilha com o e-mail da sua Service Account (ex: `bot@seu-projeto.iam.gserviceaccount.com`) com permissão de **Editor**.
-7. Pronto! A cada execução, o Python criará abas correspondentes ao termo pesquisado.
+1. No [Google Cloud Console](https://console.cloud.google.com/), ative a **Google Sheets API** e a **Google Drive API**.
+2. Crie uma **Conta de Serviço (Service Account)** e faça o download da chave JSON com o nome `credentials.json` na raiz do projeto.
+3. No Google Sheets, crie uma planilha com o nome `Rastreador de Marketplace`.
+4. Compartilhe a planilha com o e-mail da sua Service Account como **Editor**.
+5. Ao executar a esteira, ela criará automaticamente uma **nova aba** para cada termo de busca pesquisado.
 
 ---
 
 ## 🤖 Configuração do Telegram
 
-No arquivo `.env`:
+Preencha no seu arquivo `.env`:
 ```env
-TELEGRAM_BOT_TOKEN=seu_token_do_bot
-TELEGRAM_CHAT_ID=seu_chat_id
+TELEGRAM_BOT_TOKEN=seu_token_aqui
+TELEGRAM_CHAT_ID=seu_chat_id_aqui
 ```
 
 ---
 
-## ☁️ Rodando em VPS com Docker
+## 🐳 Docker & Deploy em VPS
+
+Para rodar 24/7 em um servidor com consumo de memória inferior a 50MB de RAM:
+
 ```bash
 docker compose up -d --build
 ```
+
+---
+
+## 🧪 Testes Automatizados
+
+O projeto conta com cobertura total de testes unitários:
+
+```bash
+pytest
+```
+
+---
+
+## 📄 Licença
+
+Distribuído sob a licença **MIT**. Consulte `LICENSE` para mais informações.

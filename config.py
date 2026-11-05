@@ -10,6 +10,8 @@ except Exception:
 
 @dataclass
 class Config:
+    """Configurações globais da esteira de monitoramento."""
+    
     telegram_token: str = ""
     telegram_chat_id: str = ""
     query: str = "Macbook"
@@ -20,7 +22,9 @@ class Config:
     db_path: str = "deals.db"
     dry_run: bool = False
     google_credentials_file: str = "credentials.json"
-    google_sheet_name: str = "Radar de Ofertas - Hardware"
+    google_sheet_name: str = "Rastreador de Marketplace"
+    shopee_cookie: str = ""
+    active_sources: List[str] = field(default_factory=lambda: ["olx", "ml", "shopee"])
     positive_keywords: List[str] = field(default_factory=lambda: ["macbook"])
     negative_keywords: List[str] = field(default_factory=lambda: [
         "peça", "peças", "defeito", "quebrado", "sucata", "bloqueado", 
@@ -40,7 +44,11 @@ class Config:
         db = os.getenv("DB_PATH", "deals.db")
         dry = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes") or not token
         g_cred = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
-        g_sheet = os.getenv("GOOGLE_SHEET_NAME", "Radar de Ofertas - Hardware")
+        g_sheet = os.getenv("GOOGLE_SHEET_NAME", "Rastreador de Marketplace")
+        shopee_c = os.getenv("SHOPEE_COOKIE", "").strip()
+
+        sources_raw = os.getenv("ACTIVE_SOURCES", "olx,ml,shopee").lower()
+        sources = [s.strip() for s in sources_raw.split(",") if s.strip()]
 
         positives = [p for p in query.lower().split() if len(p) > 2]
         if not positives:
@@ -58,5 +66,7 @@ class Config:
             dry_run=dry,
             google_credentials_file=g_cred,
             google_sheet_name=g_sheet,
+            shopee_cookie=shopee_c,
+            active_sources=sources,
             positive_keywords=positives
         )

@@ -9,6 +9,7 @@ from notifier.telegram_notifier import TelegramNotifier
 from scraper.base_scraper import BaseScraper
 from scraper.olx_scraper import OLXScraper
 from scraper.ml_scraper import MercadoLivreScraper
+from scraper.shopee_scraper import ShopeeScraper
 from analyzer.spec_extractor import HardwareSpecExtractor
 from analyzer.pricing_engine import PricingEngine
 from exporter.excel_exporter import ExcelExporter
@@ -29,17 +30,27 @@ class DealPipeline:
         self.db = db
         self.filter = ad_filter
         self.notifier = notifier
-        self.scrapers = scrapers or [OLXScraper(config), MercadoLivreScraper(config)]
         self.spec_extractor = HardwareSpecExtractor()
         self.pricing_engine = PricingEngine()
         self.excel_exporter = ExcelExporter()
         self.sheets_exporter = GoogleSheetsExporter(config)
 
+        if scrapers is not None:
+            self.scrapers = scrapers
+        else:
+            self.scrapers = []
+            if "olx" in config.active_sources:
+                self.scrapers.append(OLXScraper(config))
+            if "ml" in config.active_sources:
+                self.scrapers.append(MercadoLivreScraper(config))
+            if "shopee" in config.active_sources:
+                self.scrapers.append(ShopeeScraper(config))
+
     async def run_cycle(self) -> Dict[str, Any]:
-        """Executa um ciclo completo multi-fonte de busca, análise, exportação e alerta."""
-        logger.info(f"--- Iniciando ciclo de inteligência de ofertas para '{self.config.query}' ---")
+        """Executa um ciclo completo multi-marketplace de busca, análise, exportação e alerta."""
+        logger.info(f"--- Iniciando ciclo de monitoramento para '{self.config.query}' ---")
         
-        # 1. Coleta paralela em todas as fontes configuradas (OLX + Mercado Livre)
+        # 1. Coleta paralela em todos os marketplaces ativos
         scrape_tasks = [scraper.search(self.config.query) for scraper in self.scrapers]
         scraped_results = await asyncio.gather(*scrape_tasks, return_exceptions=True)
 
@@ -48,11 +59,11 @@ class DealPipeline:
             if isinstance(res, list):
                 raw_ads.extend(res)
             elif isinstance(res, Exception):
-                logger.error(f"Erro em um dos coletores: {res}")
+                logger.error(f"Erro no coletor: {res}")
 
-        logger.info(f"Total de anúncios brutos coletados (OLX + ML): {len(raw_ads)}")
+        logger.info(f"Total de anúncios coletados de todos os marketplaces: {len(raw_ads)}")
 
-        # 2. Extração semântica de especificações de hardware
+        # 2. Extração semântica de especificações
         for ad in raw_ads:
             specs = self.spec_extractor.extract(ad.title)
             ad.model_line = specs["model_line"]
@@ -62,34 +73,31 @@ class DealPipeline:
             ad.screen_size = specs["screen_size"]
             ad.sku_key = specs["sku_key"]
 
-        # 3. Motor de precificação estatística (Benchmark de mercado)
+        # 3. Motor estatístico de preços (Benchmark de mercado)
         evaluated_ads = self.pricing_engine.evaluate_deals(raw_ads)
 
-        # 4. Exportação para Planilha Excel Local e Google Sheets
+        # 4. Sincronização com Google Sheets e exportação local (.xlsx e .csv)
         if evaluated_ads:
             excel_path = self.excel_exporter.export(evaluated_ads, self.config.query)
-            logger.info(f"📊 Planilha Excel atualizada: {excel_path}")
+            logger.info(f"📊 Arquivo local atualizado: {excel_path}")
             self.sheets_exporter.export(evaluated_ads, self.config.query)
 
-        # 5. Processamento e Notificação dos anúncios novos
+        # 5. Filtragem e notificação dos anúncios novos
         new_deals: List[AdItem] = []
         ignored_filter = 0
         ignored_already_seen = 0
 
         for ad in evaluated_ads:
-            # Checa se já foi visto no SQLite
             if self.db.is_ad_seen(ad.id):
                 ignored_already_seen += 1
                 continue
 
-            # Aplica regras de filtragem (preço e palavras negativas)
             is_valid, reason = self.filter.is_valid(ad)
             if not is_valid:
                 logger.debug(f"Descartado [ID {ad.id}]: {reason} - '{ad.title}' (R$ {ad.price})")
                 ignored_filter += 1
                 continue
 
-            # Anúncio aprovado: envia alerta
             logger.info(
                 f"🎯 OPORTUNIDADE VÁLIDA ({ad.source}): [ID {ad.id}] {ad.title} "
                 f"- R$ {ad.price:,.2f} ({ad.deal_rating})"
@@ -109,6 +117,6 @@ class DealPipeline:
         }
         logger.info(
             f"Ciclo concluído: {len(new_deals)} novas ofertas alertadas, "
-            f"{ignored_filter} fora dos critérios de filtro, {ignored_already_seen} já vistos anteriormente."
+            f"{ignored_filter} fora do critério, {ignored_already_seen} já processados anteriormente."
         )
         return summary
